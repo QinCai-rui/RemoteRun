@@ -68,7 +68,7 @@ class CommandDB(Base):
 
 Base.metadata.create_all(bind=engine)
 
-# ---Pydantic Schemas ---
+# ---Pydantic Schemas. Errors were fixed by GitHub Copilot ---
 class User(BaseModel):
     id: str
     username: str
@@ -367,3 +367,7 @@ def delete_command(command_id: str, current_user: UserDB = Depends(get_current_u
 @app.get("/allowlist", response_model=List[str])
 def get_allowlist(current_user: UserDB = Depends(get_current_user)):
     return ALLOWED_COMMANDS
+
+if __name__ == "__main__":
+    import uvicorn
+    uvicorn.run("main:app", host="0.0.0.0", port=8000, reload=True)
