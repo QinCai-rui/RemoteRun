@@ -167,10 +167,18 @@ def run_ssh_command(server: ServerDB, command: str) -> str:
     if command not in ALLOWED_COMMANDS:
         raise ValueError("Command not in allowlist.")
 
-    host = server.host if not hasattr(server.host, 'expression') else server.host.__str__()
+    host_str = server.host if not hasattr(server.host, 'expression') else server.host.__str__()
     username = server.ssh_username if not hasattr(server.ssh_username, 'expression') else server.ssh_username.__str__()
     password = decode_secret(server.ssh_password_enc) if getattr(server, 'ssh_password_enc', None) else None
     privkey = decode_secret(server.ssh_privkey_enc) if getattr(server, 'ssh_privkey_enc', None) else None
+
+    # Parse host and port
+    if ':' in host_str:
+        host, port = host_str.split(':', 1)
+        port = int(port)
+    else:
+        host = host_str
+        port = 22
 
     import io
     client = paramiko.SSHClient()
@@ -181,9 +189,9 @@ def run_ssh_command(server: ServerDB, command: str) -> str:
                 pkey = paramiko.RSAKey.from_private_key_file(privkey)
             else:
                 pkey = paramiko.RSAKey.from_private_key(io.StringIO(privkey))
-            client.connect(hostname=host, username=username, pkey=pkey, timeout=6)
+            client.connect(hostname=host, port=port, username=username, pkey=pkey, timeout=6)
         elif password:
-            client.connect(hostname=host, username=username, password=password, timeout=6)
+            client.connect(hostname=host, port=port, username=username, password=password, timeout=6)
         else:
             raise ValueError("No authentication found for SSH.")
         _stdin, stdout, stderr = client.exec_command(command)
@@ -194,7 +202,7 @@ def run_ssh_command(server: ServerDB, command: str) -> str:
         client.close()
 
 # --- FastAPI app ---
-app = FastAPI(title="Remote Command Executor API (Real SSH)")
+app = FastAPI(title="Remote Command Executor API (SSH)")
 
 # --- Auth Endpoints ---
 @app.post("/auth/register", response_model=Token)
@@ -297,7 +305,7 @@ def submit_command(
     db.commit()
     db.refresh(db_cmd)
 
-    # Schedule real SSH execution in background
+    # Schedule SSH execution in bg
     background_tasks.add_task(execute_and_store_ssh, db_cmd.id)
     return db_cmd
 
