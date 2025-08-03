@@ -1,3 +1,4 @@
+'''Main module for RemoteRun API (using FastAPI and SQLAlchemy).'''
 # The SQL sections of this are created with help from GitHub Copilot
 # and are not directly copied from any source.
 
@@ -12,8 +13,9 @@ from sqlalchemy import create_engine, Column, String, DateTime, ForeignKey, Text
 from sqlalchemy.orm import sessionmaker, declarative_base, Session, relationship
 import uuid
 import paramiko
-import base64
+from cryptography.fernet import Fernet
 import os
+
 
 DATABASE_URL = "sqlite:///./cmdexec.db"
 
@@ -21,9 +23,17 @@ engine = create_engine(DATABASE_URL, connect_args={"check_same_thread": False})
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 Base = declarative_base()
 
+# --- Config ---
 SECRET_KEY = os.getenv("CMD_EXEC_SECRET_KEY", "CHANGEME_SUPERSECRET_DEV_KEY")
 ALGORITHM = "HS256"
 ACCESS_TOKEN_EXPIRE_MINUTES = 60
+
+# Fernet encryption key for secrets (sset in env for prod)
+FERNET_KEY = os.getenv("CMD_EXEC_FERNET_KEY")
+if not FERNET_KEY:
+    # Generate a key for dev if not set (not secure for prod, ONlY USE IN DEV)
+    FERNET_KEY = Fernet.generate_key().decode()
+fernet = Fernet(FERNET_KEY.encode())
 
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="auth/login")
@@ -156,10 +166,10 @@ def get_current_user(token: str = Depends(oauth2_scheme), db: Session = Depends(
         raise credentials_exception from exc
 
 def encode_secret(s: str) -> str:
-    return base64.b64encode(s.encode("utf-8")).decode("utf-8") if s else ""
+    return fernet.encrypt(s.encode("utf-8")).decode("utf-8") if s else ""
 
 def decode_secret(s: str) -> str:
-    return base64.b64decode(s).decode("utf-8") if s else ""
+    return fernet.decrypt(s.encode("utf-8")).decode("utf-8") if s else ""
 
 # --- SSH Command Execution ---
 def run_ssh_command(server: ServerDB, command: str) -> str:
