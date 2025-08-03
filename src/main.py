@@ -185,10 +185,40 @@ def run_ssh_command(server: ServerDB, command: str) -> str:
     client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
     try:
         if privkey:
-            if os.path.exists(privkey):
-                pkey = paramiko.RSAKey.from_private_key_file(privkey)
-            else:
-                pkey = paramiko.RSAKey.from_private_key(io.StringIO(privkey))
+            # load the key with different key types
+            pkey = None
+            key_data = privkey if not os.path.exists(privkey) else None
+            key_file = privkey if os.path.exists(privkey) else None
+            
+            # Try Ed25519 first cos i use it
+            try:
+                if key_file:
+                    pkey = paramiko.Ed25519Key.from_private_key_file(key_file)
+                else:
+                    pkey = paramiko.Ed25519Key.from_private_key(io.StringIO(key_data))
+            except:
+                # Fall back to RSA
+                try:
+                    if key_file:
+                        pkey = paramiko.RSAKey.from_private_key_file(key_file)
+                    else:
+                        pkey = paramiko.RSAKey.from_private_key(io.StringIO(key_data))
+                except:
+                    # Fall back to ECDSA
+                    try:
+                        if key_file:
+                            pkey = paramiko.ECDSAKey.from_private_key_file(key_file)
+                        else:
+                            pkey = paramiko.ECDSAKey.from_private_key(io.StringIO(key_data))
+                    except:
+                        # Fall back to DSS
+                        if key_file:
+                            pkey = paramiko.DSSKey.from_private_key_file(key_file)
+                        else:
+                            pkey = paramiko.DSSKey.from_private_key(io.StringIO(key_data))
+            
+            if not pkey:
+                raise ValueError("Could not load SSH private key")
             client.connect(hostname=host, port=port, username=username, pkey=pkey, timeout=6)
         elif password:
             client.connect(hostname=host, port=port, username=username, password=password, timeout=6)
