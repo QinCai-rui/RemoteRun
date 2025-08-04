@@ -202,41 +202,23 @@ def run_ssh_command(server: ServerDB, command: str) -> str:
     client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
     try:
         if privkey:
-            # load the key with different key types
+            # Always treat stored keys as key content (not file paths)
             pkey = None
-            key_data = privkey if not os.path.exists(privkey) else None
-            key_file = privkey if os.path.exists(privkey) else None
             
-            # Try Ed25519 first cos i use it
+            # Try Ed25519 first
             try:
-                if key_file:
-                    pkey = paramiko.Ed25519Key.from_private_key_file(key_file)
-                else:
-                    pkey = paramiko.Ed25519Key.from_private_key(io.StringIO(key_data))
+                pkey = paramiko.Ed25519Key.from_private_key(io.StringIO(privkey))
             except Exception as ed25519_err:
                 # Fall back to RSA
                 try:
-                    if key_file:
-                        pkey = paramiko.RSAKey.from_private_key_file(key_file)
-                    else:
-                        pkey = paramiko.RSAKey.from_private_key(io.StringIO(key_data))
+                    pkey = paramiko.RSAKey.from_private_key(io.StringIO(privkey))
                 except Exception as rsa_err:
                     # Fall back to ECDSA
                     try:
-                        if key_file:
-                            pkey = paramiko.ECDSAKey.from_private_key_file(key_file)
-                        else:
-                            pkey = paramiko.ECDSAKey.from_private_key(io.StringIO(key_data))
+                        pkey = paramiko.ECDSAKey.from_private_key(io.StringIO(privkey))
                     except Exception as ecdsa_err:
-                        # Fall back to DSS (skip if not available)
-                        try:
-                            if key_file:
-                                pkey = paramiko.DSSKey.from_private_key_file(key_file)
-                            else:
-                                pkey = paramiko.DSSKey.from_private_key(io.StringIO(key_data))
-                        except (AttributeError, Exception) as dss_err:
-                            # DSSKey not available in this paramiko version or other error
-                            raise ValueError(f"Could not load SSH private key. Tried Ed25519: {ed25519_err}, RSA: {rsa_err}, ECDSA: {ecdsa_err}, DSS: {dss_err}")
+                        # Skip DSS as it's not available in newer paramiko versions
+                        raise ValueError(f"Could not load SSH private key. Tried Ed25519: {ed25519_err}, RSA: {rsa_err}, ECDSA: {ecdsa_err}")
             
             if not pkey:
                 raise ValueError("Could not load SSH private key")
