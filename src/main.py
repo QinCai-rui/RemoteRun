@@ -206,30 +206,30 @@ def run_ssh_command(server: ServerDB, command: str) -> str:
                     pkey = paramiko.Ed25519Key.from_private_key_file(key_file)
                 else:
                     pkey = paramiko.Ed25519Key.from_private_key(io.StringIO(key_data))
-            except:
+            except Exception as ed25519_err:
                 # Fall back to RSA
                 try:
                     if key_file:
                         pkey = paramiko.RSAKey.from_private_key_file(key_file)
                     else:
                         pkey = paramiko.RSAKey.from_private_key(io.StringIO(key_data))
-                except:
+                except Exception as rsa_err:
                     # Fall back to ECDSA
                     try:
                         if key_file:
                             pkey = paramiko.ECDSAKey.from_private_key_file(key_file)
                         else:
                             pkey = paramiko.ECDSAKey.from_private_key(io.StringIO(key_data))
-                    except:
-                        # Fall back to DSS (skip if not available, apparently paramiko has no attibute DSSKey)
+                    except Exception as ecdsa_err:
+                        # Fall back to DSS (skip if not available)
                         try:
                             if key_file:
                                 pkey = paramiko.DSSKey.from_private_key_file(key_file)
                             else:
                                 pkey = paramiko.DSSKey.from_private_key(io.StringIO(key_data))
-                        except AttributeError:
-                            # DSSKey not available in this paramiko version
-                            pass
+                        except (AttributeError, Exception) as dss_err:
+                            # DSSKey not available in this paramiko version or other error
+                            raise ValueError(f"Could not load SSH private key. Tried Ed25519: {ed25519_err}, RSA: {rsa_err}, ECDSA: {ecdsa_err}, DSS: {dss_err}")
             
             if not pkey:
                 raise ValueError("Could not load SSH private key")
@@ -377,7 +377,9 @@ def execute_and_store_ssh(command_id: str):
             db_cmd.output = output
             db_cmd.status = "completed"
         except Exception as e:
-            db_cmd.output = f"Error: {e}"
+            import traceback
+            error_msg = str(e) if str(e) else f"Unknown error: {type(e).__name__}"
+            db_cmd.output = f"Error: {error_msg}\nTraceback: {traceback.format_exc()}"
             db_cmd.status = "failed"
         db_cmd.finished_at = datetime.utcnow()
         db.commit()
