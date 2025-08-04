@@ -181,6 +181,13 @@ def run_ssh_command(server: ServerDB, command: str) -> str:
     username = server.ssh_username if not hasattr(server.ssh_username, 'expression') else server.ssh_username.__str__()
     password = decode_secret(server.ssh_password_enc) if getattr(server, 'ssh_password_enc', None) else None
     privkey = decode_secret(server.ssh_privkey_enc) if getattr(server, 'ssh_privkey_enc', None) else None
+    
+    # Debug: print the key format (this is very much needed in dev for me)
+    if privkey:
+        print(f"DEBUG: Private key length: {len(privkey)}")
+        print(f"DEBUG: Key starts with: {repr(privkey[:50])}")
+        print(f"DEBUG: Key ends with: {repr(privkey[-50:])}")
+        print(f"DEBUG: Has newlines: {chr(10) in privkey}")
 
     # Parse host and port
     if ':' in host_str:
