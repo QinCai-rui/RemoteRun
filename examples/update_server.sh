@@ -1,11 +1,12 @@
 #!/bin/bash
-# Update a server (replace TOKEN and SERVER_ID, and values as needed)
-curl -X PUT http://localhost:8012/servers/SERVER_ID \
-  -H "Authorization: Bearer TOKEN" \
+# Update a server
+# Usage: set TOKEN, SERVER_ID, SERVER_NAME, SERVER_HOST, SERVER_USER, SERVER_PASSWORD/PRIVKEY
+curl -X PUT http://localhost:8012/servers/${SERVER_ID} \
+  -H "Authorization: Bearer ${TOKEN}" \
   -H "Content-Type: application/json" \
   -d '{
-    "name": "MyServerUpdated",
-    "host": "192.168.1.100",
-    "ssh_username": "ubuntu",
-    "ssh_password": "yourpassword"
+    "name": "'${SERVER_NAME}'",
+    "host": "'${SERVER_HOST}'",
+    "ssh_username": "'${SERVER_USER}'",
+    "ssh_password": "'${SERVER_PASSWORD}'"
   }'
