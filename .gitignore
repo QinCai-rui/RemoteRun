@@ -208,3 +208,5 @@ __marimo__/
 
 # project specific files
 cmdexec.db
+#testing SSH keys
+*ed25519*
