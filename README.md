@@ -9,16 +9,19 @@ TODO
 ## Quick Start
 
 1. **Install dependencies**:
+
    ```bash
    pip install -r src/requirements.txt
    ```
+
 2. **Run the server**:
+
    ```bash
    cd src
    uvicorn main:app --reload --host 0.0.0.0 --port 8012
    ```
 
-   or 
+   or
 
    ```bash
    python3 src/main.py
