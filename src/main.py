@@ -221,11 +221,15 @@ def run_ssh_command(server: ServerDB, command: str) -> str:
                         else:
                             pkey = paramiko.ECDSAKey.from_private_key(io.StringIO(key_data))
                     except:
-                        # Fall back to DSS
-                        if key_file:
-                            pkey = paramiko.DSSKey.from_private_key_file(key_file)
-                        else:
-                            pkey = paramiko.DSSKey.from_private_key(io.StringIO(key_data))
+                        # Fall back to DSS (skip if not available, apparently paramiko has no attibute DSSKey)
+                        try:
+                            if key_file:
+                                pkey = paramiko.DSSKey.from_private_key_file(key_file)
+                            else:
+                                pkey = paramiko.DSSKey.from_private_key(io.StringIO(key_data))
+                        except AttributeError:
+                            # DSSKey not available in this paramiko version
+                            pass
             
             if not pkey:
                 raise ValueError("Could not load SSH private key")
