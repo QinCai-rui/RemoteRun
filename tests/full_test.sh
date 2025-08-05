@@ -1,6 +1,6 @@
 #!/bin/bash
 # Complete end-to-end test of RemoteRun API with SSH key
-# This is 80% made by GitHub Copilot
+# This is 70% made by GitHub Copilot
 
 set -e  # Exit on any error
 trap 'echo "❌ Script failed at line $LINENO. Exit code: $?"; exit $?' ERR
@@ -89,14 +89,25 @@ echo "5. Waiting 3 seconds for command to execute..."
 sleep 3
 
 echo "6. Checking command result..."
-RESULT_RESPONSE=$(curl -s -X GET http://localhost:8012/commands/${COMMAND_ID} \
-  -H "Authorization: Bearer ${TOKEN}")
+ATTEMPTS=(0.5 1 2)  # wait times in seconds. first wait 1 sec, then 2 sec, then 4 sec, then FAIL
+RESULT_RESPONSE=""
+STATUS=""
+for WAIT in "${ATTEMPTS[@]}"; do
+  RESULT_RESPONSE=$(curl -s -X GET http://localhost:8012/commands/${COMMAND_ID} \
+    -H "Authorization: Bearer ${TOKEN}")
+  STATUS=$(echo "$RESULT_RESPONSE" | jq -r '.status')
+  if [ "$STATUS" = "completed" ]; then
+    break
+  fi
+  echo "Not completed yet (status: $STATUS), waiting $WAIT sec..."
+  sleep $WAIT
+done
 
 echo "=== FINAL RESULT ==="
 echo "$RESULT_RESPONSE" | jq .
 
 # Check if successful
-STATUS=$(echo "$RESULT_RESPONSE" | jq -r '.status')
+
 if [ "$STATUS" = "completed" ]; then
     echo "✅ SUCCESS: Command executed successfully!"
     OUTPUT=$(echo "$RESULT_RESPONSE" | jq -r '.output')
