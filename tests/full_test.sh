@@ -3,6 +3,7 @@
 # This is 80% made by GitHub Copilot
 
 set -e  # Exit on any error
+trap 'echo "❌ Script failed at line $LINENO. Exit code: $?"; exit $?' ERR
 
 echo "=== RemoteRun Full Test ==="
 
