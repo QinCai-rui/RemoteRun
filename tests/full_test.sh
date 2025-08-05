@@ -12,8 +12,12 @@ export USERNAME="testuser"
 export PASSWORD="testpass123"
 export SERVER_NAME="hackclub nest"
 export SERVER_HOST="hackclub.app"  
-export SERVER_USER="qincai"    
-export COMMAND="uptime"
+export SERVER_USER="qincai"
+
+########################################
+export COMMAND="free -h"               #
+########################################
+
 
 # Set the Fernet key
 export CMD_EXEC_FERNET_KEY="IJdqfc8AfSVQzHk28Ntargel6IyUCS3uqtlZtQWmQjE="
@@ -89,7 +93,7 @@ echo "5. Waiting 3 seconds for command to execute..."
 sleep 3
 
 echo "6. Checking command result..."
-ATTEMPTS=(0.5 1 2 4)  # wait times in seconds. first wait 0.5 sec, then 1 sec, then 2 secs, then 4 secs, then FAIL
+ATTEMPTS=(0.5 1 2 4 8)  # wait times in seconds. first wait 0.5 sec, then 1 sec, then 2 secs, then 4 secs, then 8 secs
 RESULT_RESPONSE=""
 STATUS=""
 for WAIT in "${ATTEMPTS[@]}"; do
@@ -111,7 +115,7 @@ echo "$RESULT_RESPONSE" | jq .
 if [ "$STATUS" = "completed" ]; then
     echo "✅ SUCCESS: Command executed successfully!"
     OUTPUT=$(echo "$RESULT_RESPONSE" | jq -r '.output')
-    echo "Command output: $OUTPUT"
+    echo -e "Command output:\n$OUTPUT"
 else
     echo "❌ FAILED: Command status is $STATUS"
     ERROR=$(echo "$RESULT_RESPONSE" | jq -r '.output')
