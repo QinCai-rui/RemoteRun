@@ -39,7 +39,7 @@ pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="auth/login")
 
 # Only these commands are allowed to run remotely (security resons)
-ALLOWED_COMMANDS = ["uptime", "df -h", "whoami", "cat /etc/os-release", "uname -a", "free -h", "top -h"]
+ALLOWED_COMMANDS = ["uptime", "df", "whoami", "cat", "ls", "uname", "free", "top", "ps"]
 
 # --- SQL ---
 class UserDB(Base):
@@ -174,13 +174,16 @@ def decode_secret(s: str) -> str:
 # --- SSH Command Execution ---
 def run_ssh_command(server: ServerDB, command: str) -> str:
     # Only run allowlisted commands (safety reasons)
-    if command not in ALLOWED_COMMANDS:
+    import re
+    # Allow any command that starts with a base command in ALLOWED_COMMANDS (with any options)
+    allowed_bases = [cmd.split()[0] for cmd in ALLOWED_COMMANDS]
+    if not any(re.match(rf'^{re.escape(base)}(\s|$)', command) for base in allowed_bases):
         raise ValueError("Command not in allowlist.")
 
-    host_str = server.host if not hasattr(server.host, 'expression') else server.host.__str__()
-    username = server.ssh_username if not hasattr(server.ssh_username, 'expression') else server.ssh_username.__str__()
-    password = decode_secret(server.ssh_password_enc) if getattr(server, 'ssh_password_enc', None) else None
-    privkey = decode_secret(server.ssh_privkey_enc) if getattr(server, 'ssh_privkey_enc', None) else None
+    host_str = str(server.host)
+    username = str(server.ssh_username)
+    password = decode_secret(str(server.ssh_password_enc)) if getattr(server, 'ssh_password_enc', None) else None
+    privkey = decode_secret(str(server.ssh_privkey_enc)) if getattr(server, 'ssh_privkey_enc', None) else None
     
     # Debug: print the key format (this is very much needed in dev for me)
     if privkey:
@@ -317,7 +320,9 @@ def submit_command(
     current_user: UserDB = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
-    if cmd.command not in ALLOWED_COMMANDS:
+    import re
+    allowed_bases = [cmd.split()[0] for cmd in ALLOWED_COMMANDS]
+    if not any(re.match(rf'^{re.escape(base)}(\s|$)', cmd.command) for base in allowed_bases):
         raise HTTPException(status_code=400, detail="Command not allowed")
     db_server = db.query(ServerDB).filter(ServerDB.id == cmd.server_id, ServerDB.owner_id == current_user.id).first()
     if not db_server:
@@ -339,7 +344,7 @@ def submit_command(
     db.refresh(db_cmd)
 
     # Schedule SSH execution in bg
-    background_tasks.add_task(execute_and_store_ssh, db_cmd.id)
+    background_tasks.add_task(execute_and_store_ssh, str(db_cmd.id))
     return db_cmd
 
 def execute_and_store_ssh(command_id: str):
@@ -362,7 +367,7 @@ def execute_and_store_ssh(command_id: str):
             db_cmd.status = "running"
             db.commit()
             db.refresh(db_cmd)
-            output = run_ssh_command(db_server, db_cmd.command)
+            output = run_ssh_command(db_server, str(db_cmd.command))
             db_cmd.output = output
             db_cmd.status = "completed"
         except Exception as e:
