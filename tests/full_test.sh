@@ -103,6 +103,10 @@ for WAIT in "${ATTEMPTS[@]}"; do
   if [ "$STATUS" = "completed" ]; then
     break
   fi
+  if [ "$STATUS" = "failed" ]; then
+    echo "Status is failed, stopping wait loop"
+    break
+  fi
   echo "Not completed yet (status: $STATUS), waiting $WAIT sec..."
   sleep $WAIT
 done
