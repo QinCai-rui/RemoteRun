@@ -7,3 +7,6 @@ paramiko
 python-multipart
 python-dotenv
 slowapi
+celery
+cryptography
+redis

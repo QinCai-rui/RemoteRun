@@ -20,17 +20,12 @@ import uuid
 import paramiko
 from cryptography.fernet import Fernet
 import os
-from celery import Celery
 
 # load env variables
 load_dotenv(dotenv_path=os.path.join(os.path.dirname(__file__), '.env'))
 
 # --- Celery ---
-celery_app = Celery(
-    'remoterun',
-    broker=os.getenv('CELERY_BROKER_URL', 'redis://localhost:6379/0'),
-    backend=os.getenv('CELERY_RESULT_BACKEND', 'redis://localhost:6379/0')
-)
+from celery_app import celery_app
 
 DATABASE_URL = os.getenv("DATABASE_URL", "sqlite:///./cmdexec.db")
 engine = create_engine(DATABASE_URL, connect_args={"check_same_thread": False})
@@ -183,7 +178,7 @@ def encode_secret(s: str) -> str:
     return fernet.encrypt(s.encode("utf-8")).decode("utf-8") if s else ""
 
 def decode_secret(s: str) -> str:
-    return fernet.decrypt(s.encode("utf-8")).decode("utf-8") if s else ""
+    return fernet.decrypt(s.encode("utf-8")).decode("utf-8") if s and s.strip() else ""
 
 # --- SSH Command Execution ---
 def run_ssh_command(server: ServerDB, command: str) -> str:
@@ -196,8 +191,8 @@ def run_ssh_command(server: ServerDB, command: str) -> str:
 
     host_str = str(server.host)
     username = str(server.ssh_username)
-    password = decode_secret(str(server.ssh_password_enc)) if getattr(server, 'ssh_password_enc', None) else None
-    privkey = decode_secret(str(server.ssh_privkey_enc)) if getattr(server, 'ssh_privkey_enc', None) else None
+    password = decode_secret(server.ssh_password_enc) if server.ssh_password_enc else None
+    privkey = decode_secret(server.ssh_privkey_enc) if server.ssh_privkey_enc else None
     
     # Debug: print the key format (this is very much needed in dev for me)
     if privkey:
@@ -375,41 +370,9 @@ def submit_command(request: Request, cmd: CommandCreate, current_user: UserDB = 
     db.refresh(db_cmd)
 
     # Schedule SSH execution in Celery
-    celery_app.send_task('main.execute_and_store_ssh', args=[str(db_cmd.id)])
+    from tasks import execute_and_store_ssh
+    execute_and_store_ssh.delay(str(db_cmd.id))
     return db_cmd
-
-@celery_app.task
-def execute_and_store_ssh(command_id: str):
-    db = SessionLocal()
-    try:
-        db_cmd = db.query(CommandDB).filter(CommandDB.id == command_id).first()
-        if not db_cmd:
-            db.close()
-            return
-        db_server = db.query(ServerDB).filter(ServerDB.id == db_cmd.server_id).first()
-        if not db_server:
-            db_cmd.status = "failed"
-            db_cmd.output = "Server not found"
-            db_cmd.finished_at = datetime.utcnow()
-            db.commit()
-            db.close()
-            return
-        try:
-            db_cmd.status = "running"
-            db.commit()
-            db.refresh(db_cmd)
-            output = run_ssh_command(db_server, str(db_cmd.command))
-            db_cmd.output = output
-            db_cmd.status = "completed"
-        except Exception as e:
-            import traceback
-            error_msg = str(e) if str(e) else f"Unknown error: {type(e).__name__}"
-            db_cmd.output = f"Error: {error_msg}\nTraceback: {traceback.format_exc()}"
-            db_cmd.status = "failed"
-        db_cmd.finished_at = datetime.utcnow()
-        db.commit()
-    finally:
-        db.close()
 
 @app.get("/commands", response_model=List[Command])
 @limiter.limit("60/minute")
