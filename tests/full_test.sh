@@ -15,7 +15,7 @@ export SERVER_HOST="hackclub.app"
 export SERVER_USER="qincai"
 
 ########################################
-export COMMAND="whoami"               #
+export COMMAND="${CMD:-whoami}"        #
 ########################################
 
 
@@ -103,8 +103,8 @@ for WAIT in "${ATTEMPTS[@]}"; do
   if [ "$STATUS" = "completed" ]; then
     break
   fi
-  if [ "$STATUS" = "failed" ]; then
-    echo "Status is failed, stopping wait loop"
+  if [ "$STATUS" = "failed" ] || [ "$STATUS" = "null" ]; then
+    echo "Status is failed or null, stopping wait loop"
     break
   fi
   echo "Not completed yet (status: $STATUS), waiting $WAIT sec..."
