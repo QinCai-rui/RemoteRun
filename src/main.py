@@ -3,6 +3,10 @@
 # and are not directly copied from any source.
 
 from fastapi import FastAPI, HTTPException, Depends, status, BackgroundTasks
+from dotenv import load_dotenv
+from slowapi import Limiter, _rate_limit_exceeded_handler
+from slowapi.util import get_remote_address
+from fastapi.responses import JSONResponse
 from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
 from pydantic import BaseModel
 from typing import List, Optional
@@ -17,8 +21,9 @@ from cryptography.fernet import Fernet
 import os
 
 
-DATABASE_URL = "sqlite:///./cmdexec.db"
+load_dotenv(dotenv_path=os.path.join(os.path.dirname(__file__), '.env'))
 
+DATABASE_URL = os.getenv("DATABASE_URL", "sqlite:///./cmdexec.db")
 engine = create_engine(DATABASE_URL, connect_args={"check_same_thread": False})
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 Base = declarative_base()
@@ -28,17 +33,17 @@ SECRET_KEY = os.getenv("CMD_EXEC_SECRET_KEY", "CHANGEME_SUPERSECRET_DEV_KEY")
 ALGORITHM = "HS256"
 ACCESS_TOKEN_EXPIRE_MINUTES = 60
 
-# Fernet encryption key for secrets (sset in env for prod)
+# Fernet encryption key for secrets (set in env for prod)
 FERNET_KEY = os.getenv("CMD_EXEC_FERNET_KEY")
 if not FERNET_KEY:
-    # Generate a key for dev if not set (not secure for prod, ONlY USE IN DEV)
+    # Generate a key for dev if not set (not secure for prod, ONLY USE IN DEV)
     FERNET_KEY = Fernet.generate_key().decode()
 fernet = Fernet(FERNET_KEY.encode())
 
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="auth/login")
 
-# Only these commands are allowed to run remotely (security resons)
+# Only these commands are allowed to run remotely (security reasons)
 ALLOWED_COMMANDS = ["uptime", "df", "whoami", "cat", "ls", "uname", "free", "top", "ps"]
 
 # --- SQL ---
@@ -240,8 +245,14 @@ def run_ssh_command(server: ServerDB, command: str) -> str:
 # --- FastAPI app ---
 app = FastAPI(title="Remote Command Executor API (SSH)")
 
+# --- Rate Limiting ---
+limiter = Limiter(key_func=get_remote_address)
+app.state.limiter = limiter
+app.add_exception_handler(429, _rate_limit_exceeded_handler)
+
 # --- Auth Endpoints ---
 @app.post("/auth/register", response_model=Token)
+@limiter.limit("5/minute")
 def register(form: OAuth2PasswordRequestForm = Depends(), db: Session = Depends(get_db)):
     if get_user_by_username(db, form.username):
         raise HTTPException(status_code=400, detail="Username already registered")
@@ -255,6 +266,7 @@ def register(form: OAuth2PasswordRequestForm = Depends(), db: Session = Depends(
     return {"access_token": access_token, "token_type": "bearer"}
 
 @app.post("/auth/login", response_model=Token)
+@limiter.limit("10/minute")
 def login(form: OAuth2PasswordRequestForm = Depends(), db: Session = Depends(get_db)):
     user = get_user_by_username(db, form.username)
     if not user or not verify_password(form.password, user.hashed_password):
@@ -264,6 +276,7 @@ def login(form: OAuth2PasswordRequestForm = Depends(), db: Session = Depends(get
 
 # --- Server Endpoints ---
 @app.post("/servers", response_model=Server)
+@limiter.limit("20/minute")
 def add_server(server: ServerCreate, current_user: UserDB = Depends(get_current_user), db: Session = Depends(get_db)):
     server_id = str(uuid.uuid4())
     ssh_password_enc = encode_secret(server.ssh_password) if server.ssh_password else ""
@@ -314,6 +327,7 @@ def delete_server(server_id: str, current_user: UserDB = Depends(get_current_use
 
 # --- Command Endpoints ---
 @app.post("/commands", response_model=Command)
+@limiter.limit("30/minute")
 def submit_command(
     cmd: CommandCreate,
     background_tasks: BackgroundTasks,
@@ -381,6 +395,7 @@ def execute_and_store_ssh(command_id: str):
         db.close()
 
 @app.get("/commands", response_model=List[Command])
+@limiter.limit("60/minute")
 def list_commands(current_user: UserDB = Depends(get_current_user), db: Session = Depends(get_db)):
     cmds = db.query(CommandDB).filter(CommandDB.user_id == current_user.id).order_by(CommandDB.submitted_at.desc()).all()
     return cmds
