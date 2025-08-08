@@ -19,7 +19,7 @@ export COMMAND="free -h"               #
 ########################################
 
 
-# Set the Fernet key
+# Set the Fernet key. not used but still...
 export CMD_EXEC_FERNET_KEY="IJdqfc8AfSVQzHk28Ntargel6IyUCS3uqtlZtQWmQjE="
 
 echo "1. Trying to authenticate..."
