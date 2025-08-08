@@ -247,9 +247,20 @@ def run_ssh_command(server: ServerDB, command: str) -> str:
         _stdin, stdout, stderr = client.exec_command(command, timeout=10)
         stdout.channel.settimeout(10.0)  # Set timeout for reading
         stderr.channel.settimeout(10.0)
-        out = stdout.read().decode()
-        err = stderr.read().decode()
-        return (out + ("\n" + err if err else "")).strip()
+        try:
+            out = stdout.read().decode()
+            err = stderr.read().decode()
+            return (out + ("\n" + err if err else "")).strip()
+        except Exception:
+            # If reading fails due to timeout, try to get partial output
+            stdout.channel.settimeout(1.0)
+            stderr.channel.settimeout(1.0)
+            try:
+                out = stdout.read().decode()
+                err = stderr.read().decode()
+                return (out + ("\n" + err if err else "")).strip()
+            except Exception:
+                return "Command timed out or connection lost"
     finally:
         client.close()
 
