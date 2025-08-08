@@ -244,7 +244,9 @@ def run_ssh_command(server: ServerDB, command: str) -> str:
             client.connect(hostname=host, port=port, username=username, password=password, timeout=6)
         else:
             raise ValueError("No authentication found for SSH.")
-        _stdin, stdout, stderr = client.exec_command(command)
+        _stdin, stdout, stderr = client.exec_command(command, timeout=10)
+        stdout.channel.settimeout(10.0)  # Set timeout for reading
+        stderr.channel.settimeout(10.0)
         out = stdout.read().decode()
         err = stderr.read().decode()
         return (out + ("\n" + err if err else "")).strip()
