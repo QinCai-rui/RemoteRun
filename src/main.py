@@ -2,7 +2,8 @@
 # The SQL sections of this are created with help from GitHub Copilot
 # and are not directly copied from any source.
 
-from fastapi import FastAPI, HTTPException, Depends, status, BackgroundTasks
+from fastapi import FastAPI, HTTPException, Depends, status
+from fastapi import Request
 from dotenv import load_dotenv
 from slowapi import Limiter, _rate_limit_exceeded_handler
 from slowapi.util import get_remote_address
@@ -19,9 +20,17 @@ import uuid
 import paramiko
 from cryptography.fernet import Fernet
 import os
+from celery import Celery
 
-
+# load env variables
 load_dotenv(dotenv_path=os.path.join(os.path.dirname(__file__), '.env'))
+
+# --- Celery ---
+celery_app = Celery(
+    'remoterun',
+    broker=os.getenv('CELERY_BROKER_URL', 'redis://localhost:6379/0'),
+    backend=os.getenv('CELERY_RESULT_BACKEND', 'redis://localhost:6379/0')
+)
 
 DATABASE_URL = os.getenv("DATABASE_URL", "sqlite:///./cmdexec.db")
 engine = create_engine(DATABASE_URL, connect_args={"check_same_thread": False})
@@ -253,7 +262,7 @@ app.add_exception_handler(429, _rate_limit_exceeded_handler)
 # --- Auth Endpoints ---
 @app.post("/auth/register", response_model=Token)
 @limiter.limit("5/minute")
-def register(form: OAuth2PasswordRequestForm = Depends(), db: Session = Depends(get_db)):
+def register(request: Request, form: OAuth2PasswordRequestForm = Depends(), db: Session = Depends(get_db)):
     if get_user_by_username(db, form.username):
         raise HTTPException(status_code=400, detail="Username already registered")
     user_id = str(uuid.uuid4())
@@ -266,8 +275,8 @@ def register(form: OAuth2PasswordRequestForm = Depends(), db: Session = Depends(
     return {"access_token": access_token, "token_type": "bearer"}
 
 @app.post("/auth/login", response_model=Token)
-@limiter.limit("10/minute")
-def login(form: OAuth2PasswordRequestForm = Depends(), db: Session = Depends(get_db)):
+@limiter.limit("15/minute")
+def login(request: Request, form: OAuth2PasswordRequestForm = Depends(), db: Session = Depends(get_db)):
     user = get_user_by_username(db, form.username)
     if not user or not verify_password(form.password, user.hashed_password):
         raise HTTPException(status_code=400, detail="Incorrect username or password")
@@ -277,7 +286,7 @@ def login(form: OAuth2PasswordRequestForm = Depends(), db: Session = Depends(get
 # --- Server Endpoints ---
 @app.post("/servers", response_model=Server)
 @limiter.limit("20/minute")
-def add_server(server: ServerCreate, current_user: UserDB = Depends(get_current_user), db: Session = Depends(get_db)):
+def add_server(request: Request, server: ServerCreate, current_user: UserDB = Depends(get_current_user), db: Session = Depends(get_db)):
     server_id = str(uuid.uuid4())
     ssh_password_enc = encode_secret(server.ssh_password) if server.ssh_password else ""
     ssh_privkey_enc = encode_secret(server.ssh_privkey) if server.ssh_privkey else ""
@@ -328,12 +337,7 @@ def delete_server(server_id: str, current_user: UserDB = Depends(get_current_use
 # --- Command Endpoints ---
 @app.post("/commands", response_model=Command)
 @limiter.limit("30/minute")
-def submit_command(
-    cmd: CommandCreate,
-    background_tasks: BackgroundTasks,
-    current_user: UserDB = Depends(get_current_user),
-    db: Session = Depends(get_db)
-):
+def submit_command(request: Request, cmd: CommandCreate, current_user: UserDB = Depends(get_current_user), db: Session = Depends(get_db)):
     import re
     allowed_bases = [cmd.split()[0] for cmd in ALLOWED_COMMANDS]
     if not any(re.match(rf'^{re.escape(base)}(\s|$)', cmd.command) for base in allowed_bases):
@@ -357,12 +361,12 @@ def submit_command(
     db.commit()
     db.refresh(db_cmd)
 
-    # Schedule SSH execution in bg
-    background_tasks.add_task(execute_and_store_ssh, str(db_cmd.id))
+    # Schedule SSH execution in Celery
+    execute_and_store_ssh.delay(str(db_cmd.id))
     return db_cmd
 
+@celery_app.task
 def execute_and_store_ssh(command_id: str):
-    # For use in background task (has its own DB session)
     db = SessionLocal()
     try:
         db_cmd = db.query(CommandDB).filter(CommandDB.id == command_id).first()
@@ -396,7 +400,7 @@ def execute_and_store_ssh(command_id: str):
 
 @app.get("/commands", response_model=List[Command])
 @limiter.limit("60/minute")
-def list_commands(current_user: UserDB = Depends(get_current_user), db: Session = Depends(get_db)):
+def list_commands(request: Request, current_user: UserDB = Depends(get_current_user), db: Session = Depends(get_db)):
     cmds = db.query(CommandDB).filter(CommandDB.user_id == current_user.id).order_by(CommandDB.submitted_at.desc()).all()
     return cmds
 
@@ -433,4 +437,4 @@ def get_allowlist(current_user: UserDB = Depends(get_current_user)):
 
 if __name__ == "__main__":
     import uvicorn
-    uvicorn.run("main:app", host="0.0.0.0", port=8012, reload=True)
+    uvicorn.run("main:app", host="0.0.0.0", port=8013, reload=True)
