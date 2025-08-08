@@ -362,7 +362,7 @@ def submit_command(request: Request, cmd: CommandCreate, current_user: UserDB = 
     db.refresh(db_cmd)
 
     # Schedule SSH execution in Celery
-    execute_and_store_ssh.delay(str(db_cmd.id))
+    celery_app.send_task('main.execute_and_store_ssh', args=[str(db_cmd.id)])
     return db_cmd
 
 @celery_app.task
