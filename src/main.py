@@ -48,9 +48,15 @@ pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="auth/login")
 
 # Only these commands are allowed to run remotely (security reasons)
-ALLOWED_COMMANDS = ["uptime", "df", "whoami", "cat", "ls", "uname", "free", "top", "ps"]
+ALLOWED_COMMANDS = [
+    "uptime", "df", "whoami", "cat", "ls", "uname", "free", "top", "ps", "head",
+    "date", "id", "hostname", "pwd", "echo", "env", "stat", "vmstat", "netstat",
+    "w", "last", "groups", "which", "whereis", "find", "grep", "cut", "sort",
+    "tail", "wc", "tr", "uniq", "ping", "ifconfig", "ip", "ss", "route", "df", "mount"
+]
 
 # --- SQL ---
+# This section is made my GitHub Copilot
 class UserDB(Base):
     __tablename__ = "users"
     id = Column(String, primary_key=True, index=True)
