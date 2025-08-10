@@ -275,7 +275,7 @@ app.add_exception_handler(429, _rate_limit_exceeded_handler)
 
 # --- Auth Endpoints ---
 @app.post("/auth/register", response_model=Token)
-@limiter.limit("5/minute")
+@limiter.limit("5/minute")  # 5 req per minute
 def register(request: Request, form: OAuth2PasswordRequestForm = Depends(), db: Session = Depends(get_db)):
     if get_user_by_username(db, form.username):
         raise HTTPException(status_code=400, detail="Username already registered")
@@ -289,7 +289,7 @@ def register(request: Request, form: OAuth2PasswordRequestForm = Depends(), db: 
     return {"access_token": access_token, "token_type": "bearer"}
 
 @app.post("/auth/login", response_model=Token)
-@limiter.limit("15/minute")
+@limiter.limit("15/minute")  # 15 req per minute
 def login(request: Request, form: OAuth2PasswordRequestForm = Depends(), db: Session = Depends(get_db)):
     user = get_user_by_username(db, form.username)
     if not user or not verify_password(form.password, user.hashed_password):
@@ -299,7 +299,7 @@ def login(request: Request, form: OAuth2PasswordRequestForm = Depends(), db: Ses
 
 # --- Server Endpoints ---
 @app.post("/servers", response_model=Server)
-@limiter.limit("20/minute")
+@limiter.limit("20/minute")  # 20 req per minute
 def add_server(request: Request, server: ServerCreate, current_user: UserDB = Depends(get_current_user), db: Session = Depends(get_db)):
     server_id = str(uuid.uuid4())
     ssh_password_enc = encode_secret(server.ssh_password) if server.ssh_password else ""
