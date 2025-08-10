@@ -2,7 +2,8 @@
 # The SQL sections of this are created with help from GitHub Copilot
 # and are not directly copied from any source.
 
-from fastapi import FastAPI, HTTPException, Depends, status, BackgroundTasks
+from fastapi import FastAPI, HTTPException, Depends, status
+from fastapi import Request
 from dotenv import load_dotenv
 from slowapi import Limiter, _rate_limit_exceeded_handler
 from slowapi.util import get_remote_address
@@ -20,8 +21,11 @@ import paramiko
 from cryptography.fernet import Fernet
 import os
 
-
+# load env variables
 load_dotenv(dotenv_path=os.path.join(os.path.dirname(__file__), '.env'))
+
+# --- Celery ---
+from celery_app import celery_app
 
 DATABASE_URL = os.getenv("DATABASE_URL", "sqlite:///./cmdexec.db")
 engine = create_engine(DATABASE_URL, connect_args={"check_same_thread": False})
@@ -44,9 +48,15 @@ pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="auth/login")
 
 # Only these commands are allowed to run remotely (security reasons)
-ALLOWED_COMMANDS = ["uptime", "df", "whoami", "cat", "ls", "uname", "free", "top", "ps"]
+ALLOWED_COMMANDS = [
+    "uptime", "df", "whoami", "cat", "ls", "uname", "free", "top", "ps", "head",
+    "date", "id", "hostname", "pwd", "echo", "env", "stat", "vmstat", "netstat",
+    "w", "last", "groups", "which", "whereis", "find", "grep", "cut", "sort",
+    "tail", "wc", "tr", "uniq", "ping", "ifconfig", "ip", "ss", "route", "df", "mount"
+]
 
 # --- SQL ---
+# This section is made my GitHub Copilot
 class UserDB(Base):
     __tablename__ = "users"
     id = Column(String, primary_key=True, index=True)
@@ -174,7 +184,7 @@ def encode_secret(s: str) -> str:
     return fernet.encrypt(s.encode("utf-8")).decode("utf-8") if s else ""
 
 def decode_secret(s: str) -> str:
-    return fernet.decrypt(s.encode("utf-8")).decode("utf-8") if s else ""
+    return fernet.decrypt(s.encode("utf-8")).decode("utf-8") if s and s.strip() else ""
 
 # --- SSH Command Execution ---
 def run_ssh_command(server: ServerDB, command: str) -> str:
@@ -187,8 +197,8 @@ def run_ssh_command(server: ServerDB, command: str) -> str:
 
     host_str = str(server.host)
     username = str(server.ssh_username)
-    password = decode_secret(str(server.ssh_password_enc)) if getattr(server, 'ssh_password_enc', None) else None
-    privkey = decode_secret(str(server.ssh_privkey_enc)) if getattr(server, 'ssh_privkey_enc', None) else None
+    password = decode_secret(server.ssh_password_enc) if server.ssh_password_enc else None
+    privkey = decode_secret(server.ssh_privkey_enc) if server.ssh_privkey_enc else None
     
     # Debug: print the key format (this is very much needed in dev for me)
     if privkey:
@@ -235,10 +245,23 @@ def run_ssh_command(server: ServerDB, command: str) -> str:
             client.connect(hostname=host, port=port, username=username, password=password, timeout=6)
         else:
             raise ValueError("No authentication found for SSH.")
-        _stdin, stdout, stderr = client.exec_command(command)
-        out = stdout.read().decode()
-        err = stderr.read().decode()
-        return (out + ("\n" + err if err else "")).strip()
+        _stdin, stdout, stderr = client.exec_command(command, timeout=10)
+        stdout.channel.settimeout(10.0)  # Set timeout for reading
+        stderr.channel.settimeout(10.0)
+        try:
+            out = stdout.read().decode()
+            err = stderr.read().decode()
+            return (out + ("\n" + err if err else "")).strip()
+        except Exception:
+            # If reading fails due to timeout, try to get partial output
+            stdout.channel.settimeout(1.0)
+            stderr.channel.settimeout(1.0)
+            try:
+                out = stdout.read().decode()
+                err = stderr.read().decode()
+                return (out + ("\n" + err if err else "")).strip()
+            except Exception:
+                return "Command timed out or connection lost"
     finally:
         client.close()
 
@@ -252,8 +275,8 @@ app.add_exception_handler(429, _rate_limit_exceeded_handler)
 
 # --- Auth Endpoints ---
 @app.post("/auth/register", response_model=Token)
-@limiter.limit("5/minute")
-def register(form: OAuth2PasswordRequestForm = Depends(), db: Session = Depends(get_db)):
+@limiter.limit("5/minute")  # 5 req per minute
+def register(request: Request, form: OAuth2PasswordRequestForm = Depends(), db: Session = Depends(get_db)):
     if get_user_by_username(db, form.username):
         raise HTTPException(status_code=400, detail="Username already registered")
     user_id = str(uuid.uuid4())
@@ -266,8 +289,8 @@ def register(form: OAuth2PasswordRequestForm = Depends(), db: Session = Depends(
     return {"access_token": access_token, "token_type": "bearer"}
 
 @app.post("/auth/login", response_model=Token)
-@limiter.limit("10/minute")
-def login(form: OAuth2PasswordRequestForm = Depends(), db: Session = Depends(get_db)):
+@limiter.limit("15/minute")  # 15 req per minute
+def login(request: Request, form: OAuth2PasswordRequestForm = Depends(), db: Session = Depends(get_db)):
     user = get_user_by_username(db, form.username)
     if not user or not verify_password(form.password, user.hashed_password):
         raise HTTPException(status_code=400, detail="Incorrect username or password")
@@ -276,8 +299,8 @@ def login(form: OAuth2PasswordRequestForm = Depends(), db: Session = Depends(get
 
 # --- Server Endpoints ---
 @app.post("/servers", response_model=Server)
-@limiter.limit("20/minute")
-def add_server(server: ServerCreate, current_user: UserDB = Depends(get_current_user), db: Session = Depends(get_db)):
+@limiter.limit("20/minute")  # 20 req per minute
+def add_server(request: Request, server: ServerCreate, current_user: UserDB = Depends(get_current_user), db: Session = Depends(get_db)):
     server_id = str(uuid.uuid4())
     ssh_password_enc = encode_secret(server.ssh_password) if server.ssh_password else ""
     ssh_privkey_enc = encode_secret(server.ssh_privkey) if server.ssh_privkey else ""
@@ -328,12 +351,7 @@ def delete_server(server_id: str, current_user: UserDB = Depends(get_current_use
 # --- Command Endpoints ---
 @app.post("/commands", response_model=Command)
 @limiter.limit("30/minute")
-def submit_command(
-    cmd: CommandCreate,
-    background_tasks: BackgroundTasks,
-    current_user: UserDB = Depends(get_current_user),
-    db: Session = Depends(get_db)
-):
+def submit_command(request: Request, cmd: CommandCreate, current_user: UserDB = Depends(get_current_user), db: Session = Depends(get_db)):
     import re
     allowed_bases = [cmd.split()[0] for cmd in ALLOWED_COMMANDS]
     if not any(re.match(rf'^{re.escape(base)}(\s|$)', cmd.command) for base in allowed_bases):
@@ -357,46 +375,14 @@ def submit_command(
     db.commit()
     db.refresh(db_cmd)
 
-    # Schedule SSH execution in bg
-    background_tasks.add_task(execute_and_store_ssh, str(db_cmd.id))
+    # Schedule SSH execution in Celery
+    from tasks import execute_and_store_ssh
+    execute_and_store_ssh.delay(str(db_cmd.id))
     return db_cmd
-
-def execute_and_store_ssh(command_id: str):
-    # For use in background task (has its own DB session)
-    db = SessionLocal()
-    try:
-        db_cmd = db.query(CommandDB).filter(CommandDB.id == command_id).first()
-        if not db_cmd:
-            db.close()
-            return
-        db_server = db.query(ServerDB).filter(ServerDB.id == db_cmd.server_id).first()
-        if not db_server:
-            db_cmd.status = "failed"
-            db_cmd.output = "Server not found"
-            db_cmd.finished_at = datetime.utcnow()
-            db.commit()
-            db.close()
-            return
-        try:
-            db_cmd.status = "running"
-            db.commit()
-            db.refresh(db_cmd)
-            output = run_ssh_command(db_server, str(db_cmd.command))
-            db_cmd.output = output
-            db_cmd.status = "completed"
-        except Exception as e:
-            import traceback
-            error_msg = str(e) if str(e) else f"Unknown error: {type(e).__name__}"
-            db_cmd.output = f"Error: {error_msg}\nTraceback: {traceback.format_exc()}"
-            db_cmd.status = "failed"
-        db_cmd.finished_at = datetime.utcnow()
-        db.commit()
-    finally:
-        db.close()
 
 @app.get("/commands", response_model=List[Command])
 @limiter.limit("60/minute")
-def list_commands(current_user: UserDB = Depends(get_current_user), db: Session = Depends(get_db)):
+def list_commands(request: Request, current_user: UserDB = Depends(get_current_user), db: Session = Depends(get_db)):
     cmds = db.query(CommandDB).filter(CommandDB.user_id == current_user.id).order_by(CommandDB.submitted_at.desc()).all()
     return cmds
 
@@ -433,4 +419,4 @@ def get_allowlist(current_user: UserDB = Depends(get_current_user)):
 
 if __name__ == "__main__":
     import uvicorn
-    uvicorn.run("main:app", host="0.0.0.0", port=8012, reload=True)
+    uvicorn.run("main:app", host="0.0.0.0", port=8013, reload=True)

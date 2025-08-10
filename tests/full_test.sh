@@ -1,6 +1,6 @@
 #!/bin/bash
 # Complete end-to-end test of RemoteRun API with SSH key
-# This is 70% made by GitHub Copilot
+# This is 60% made by GitHub Copilot
 
 set -e  # Exit on any error
 trap 'echo "❌ Script failed at line $LINENO. Exit code: $?"; exit $?' ERR
@@ -15,7 +15,7 @@ export SERVER_HOST="hackclub.app"
 export SERVER_USER="qincai"
 
 ########################################
-export COMMAND="free -h"               #
+export COMMAND="${CMD:-whoami}"        #
 ########################################
 
 
@@ -27,7 +27,7 @@ echo "1. Trying to authenticate..."
 LOGIN_RESPONSE=$(curl -s -X POST \
   -F "username=${USERNAME}" \
   -F "password=${PASSWORD}" \
-  http://localhost:8012/auth/login)
+  http://localhost:8013/auth/login)
 
 echo "Login response: $LOGIN_RESPONSE"
 export TOKEN=$(echo "$LOGIN_RESPONSE" | jq -r '.access_token')
@@ -39,7 +39,7 @@ if [ "$TOKEN" = "null" ]; then
     REGISTER_RESPONSE=$(curl -s -X POST \
       -F "username=${USERNAME}" \
       -F "password=${PASSWORD}" \
-      http://localhost:8012/auth/register)
+      http://localhost:8013/auth/register)
     echo "Register response: $REGISTER_RESPONSE"
     export TOKEN=$(echo "$REGISTER_RESPONSE" | jq -r '.access_token')
 fi
@@ -48,11 +48,11 @@ echo "Got token: ${TOKEN:0:20}..."
 
 echo "2. Loading SSH private key..."
 # Load and format SSH private key with proper JSON escaping (convert newlines to \n)
-export SERVER_PRIVKEY="$(cat /home/qincai/RemoteRun/examples/test_ed25519 | sed ':a;N;$!ba;s/\n/\\n/g')"
+export SERVER_PRIVKEY="$(cat /workspaces/RemoteRun/tests/test_ed25519 | sed ':a;N;$!ba;s/\n/\\n/g')"
 echo "Key loaded, length: ${#SERVER_PRIVKEY} characters"
 
 echo "3. Adding server with SSH key..."
-ADD_SERVER_RESPONSE=$(curl -s -X POST http://localhost:8012/servers \
+ADD_SERVER_RESPONSE=$(curl -s -X POST http://localhost:8013/servers \
   -H "Authorization: Bearer ${TOKEN}" \
   -H "Content-Type: application/json" \
   -d @- <<EOF
@@ -72,7 +72,7 @@ export SERVER_ID=$(echo "$ADD_SERVER_RESPONSE" | jq -r '.id')
 echo "Got server ID: $SERVER_ID"
 
 echo "4. Submitting command..."
-SUBMIT_RESPONSE=$(curl -s -X POST http://localhost:8012/commands \
+SUBMIT_RESPONSE=$(curl -s -X POST http://localhost:8013/commands \
   -H "Authorization: Bearer ${TOKEN}" \
   -H "Content-Type: application/json" \
   -d @- <<EOF
@@ -93,14 +93,18 @@ echo "5. Waiting 3 seconds for command to execute..."
 sleep 3
 
 echo "6. Checking command result..."
-ATTEMPTS=(0.5 1 2 4 8)  # wait times in seconds. first wait 0.5 sec, then 1 sec, then 2 secs, then 4 secs, then 8 secs
+ATTEMPTS=(0.5 1 2 4 8 10 12 14 16)  # wait times in seconds. first wait 0.5 sec, then 1 sec, then 2 secs, then 4 secs, then 8 secs, then 10 secs, then 12 secs, etc
 RESULT_RESPONSE=""
 STATUS=""
 for WAIT in "${ATTEMPTS[@]}"; do
-  RESULT_RESPONSE=$(curl -s -X GET http://localhost:8012/commands/${COMMAND_ID} \
+  RESULT_RESPONSE=$(curl -s -X GET http://localhost:8013/commands/${COMMAND_ID} \
     -H "Authorization: Bearer ${TOKEN}")
   STATUS=$(echo "$RESULT_RESPONSE" | jq -r '.status')
   if [ "$STATUS" = "completed" ]; then
+    break
+  fi
+  if [ "$STATUS" = "failed" ] || [ "$STATUS" = "null" ]; then
+    echo "Status is failed or null, stopping wait loop"
     break
   fi
   echo "Not completed yet (status: $STATUS), waiting $WAIT sec..."
