@@ -6,7 +6,7 @@ python-jose
 paramiko
 python-multipart
 python-dotenv
-slowapi
+slowapi # rate limiting
 celery
 cryptography
 redis
