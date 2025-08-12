@@ -93,7 +93,7 @@ echo "5. Waiting 3 seconds for command to execute..."
 sleep 3
 
 echo "6. Checking command result..."
-ATTEMPTS=(0.5 1 2 4 8 10 12 14 16)  # wait times in seconds. first wait 0.5 sec, then 1 sec, then 2 secs, then 4 secs, then 8 secs, then 10 secs, then 12 secs, etc
+ATTEMPTS=(0.5 1 2 4 8 10 12)  # wait times in seconds. first wait 0.5 sec, then 1 sec, then 2 secs, then 4 secs, then 8 secs, then 10 secs, then 12 secs
 RESULT_RESPONSE=""
 STATUS=""
 for WAIT in "${ATTEMPTS[@]}"; do
