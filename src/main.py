@@ -25,7 +25,12 @@ import os
 load_dotenv(dotenv_path=os.path.join(os.path.dirname(__file__), '.env'))
 
 # --- Celery ---
-from celery_app import celery_app
+try:
+    # When imported as a module (for Celery)
+    from .celery_app import celery_app
+except ImportError:
+    # When run directly as a script
+    from celery_app import celery_app
 
 DATABASE_URL = os.getenv("DATABASE_URL", "sqlite:///./cmdexec.db")
 engine = create_engine(DATABASE_URL, connect_args={"check_same_thread": False})
@@ -266,15 +271,15 @@ def run_ssh_command(server: ServerDB, command: str) -> str:
         client.close()
 
 # --- FastAPI app ---
-app = FastAPI(title="Remote Command Executor API (SSH)")
+fastapi_app = FastAPI(title="Remote Command Executor API (SSH)")
 
 # --- Rate Limiting ---
 limiter = Limiter(key_func=get_remote_address)
-app.state.limiter = limiter
-app.add_exception_handler(429, _rate_limit_exceeded_handler)
+fastapi_app.state.limiter = limiter
+fastapi_app.add_exception_handler(429, _rate_limit_exceeded_handler)
 
 # --- Auth Endpoints ---
-@app.post("/auth/register", response_model=Token)
+@fastapi_app.post("/auth/register", response_model=Token)
 @limiter.limit("5/minute")  # 5 req per minute
 def register(request: Request, form: OAuth2PasswordRequestForm = Depends(), db: Session = Depends(get_db)):
     if get_user_by_username(db, form.username):
@@ -288,7 +293,7 @@ def register(request: Request, form: OAuth2PasswordRequestForm = Depends(), db: 
     access_token = create_access_token(data={"sub": user.username})
     return {"access_token": access_token, "token_type": "bearer"}
 
-@app.post("/auth/login", response_model=Token)
+@fastapi_app.post("/auth/login", response_model=Token)
 @limiter.limit("15/minute")  # 15 req per minute
 def login(request: Request, form: OAuth2PasswordRequestForm = Depends(), db: Session = Depends(get_db)):
     user = get_user_by_username(db, form.username)
@@ -298,7 +303,7 @@ def login(request: Request, form: OAuth2PasswordRequestForm = Depends(), db: Ses
     return {"access_token": access_token, "token_type": "bearer"}
 
 # --- Server Endpoints ---
-@app.post("/servers", response_model=Server)
+@fastapi_app.post("/servers", response_model=Server)
 @limiter.limit("20/minute")  # 20 req per minute
 def add_server(request: Request, server: ServerCreate, current_user: UserDB = Depends(get_current_user), db: Session = Depends(get_db)):
     server_id = str(uuid.uuid4())
@@ -318,12 +323,12 @@ def add_server(request: Request, server: ServerCreate, current_user: UserDB = De
     db.refresh(db_server)
     return db_server
 
-@app.get("/servers", response_model=List[Server])
+@fastapi_app.get("/servers", response_model=List[Server])
 def list_servers(current_user: UserDB = Depends(get_current_user), db: Session = Depends(get_db)):
     servers = db.query(ServerDB).filter(ServerDB.owner_id == current_user.id).all()
     return servers
 
-@app.put("/servers/{server_id}", response_model=Server)
+@fastapi_app.put("/servers/{server_id}", response_model=Server)
 def update_server(server_id: str, server: ServerCreate, current_user: UserDB = Depends(get_current_user), db: Session = Depends(get_db)):
     db_server = db.query(ServerDB).filter(ServerDB.id == server_id, ServerDB.owner_id == current_user.id).first()
     if not db_server:
@@ -339,7 +344,7 @@ def update_server(server_id: str, server: ServerCreate, current_user: UserDB = D
     db.refresh(db_server)
     return db_server
 
-@app.delete("/servers/{server_id}")
+@fastapi_app.delete("/servers/{server_id}")
 def delete_server(server_id: str, current_user: UserDB = Depends(get_current_user), db: Session = Depends(get_db)):
     db_server = db.query(ServerDB).filter(ServerDB.id == server_id, ServerDB.owner_id == current_user.id).first()
     if not db_server:
@@ -349,7 +354,7 @@ def delete_server(server_id: str, current_user: UserDB = Depends(get_current_use
     return {"detail": "Server deleted"}
 
 # --- Command Endpoints ---
-@app.post("/commands", response_model=Command)
+@fastapi_app.post("/commands", response_model=Command)
 @limiter.limit("30/minute")
 def submit_command(request: Request, cmd: CommandCreate, current_user: UserDB = Depends(get_current_user), db: Session = Depends(get_db)):
     import re
@@ -376,24 +381,27 @@ def submit_command(request: Request, cmd: CommandCreate, current_user: UserDB = 
     db.refresh(db_cmd)
 
     # Schedule SSH execution in Celery
-    from tasks import execute_and_store_ssh
+    try:
+        from .tasks import execute_and_store_ssh
+    except ImportError:
+        from tasks import execute_and_store_ssh
     execute_and_store_ssh.delay(str(db_cmd.id))
     return db_cmd
 
-@app.get("/commands", response_model=List[Command])
+@fastapi_app.get("/commands", response_model=List[Command])
 @limiter.limit("60/minute")
 def list_commands(request: Request, current_user: UserDB = Depends(get_current_user), db: Session = Depends(get_db)):
     cmds = db.query(CommandDB).filter(CommandDB.user_id == current_user.id).order_by(CommandDB.submitted_at.desc()).all()
     return cmds
 
-@app.get("/commands/{command_id}", response_model=Command)
+@fastapi_app.get("/commands/{command_id}", response_model=Command)
 def get_command(command_id: str, current_user: UserDB = Depends(get_current_user), db: Session = Depends(get_db)):
     db_cmd = db.query(CommandDB).filter(CommandDB.id == command_id, CommandDB.user_id == current_user.id).first()
     if not db_cmd:
         raise HTTPException(status_code=404, detail="Command not found or unauthorized")
     return db_cmd
 
-@app.put("/commands/{command_id}", response_model=Command)
+@fastapi_app.put("/commands/{command_id}", response_model=Command)
 def update_command(command_id: str, status: str, current_user: UserDB = Depends(get_current_user), db: Session = Depends(get_db)):
     db_cmd = db.query(CommandDB).filter(CommandDB.id == command_id, CommandDB.user_id == current_user.id).first()
     if not db_cmd:
@@ -403,7 +411,7 @@ def update_command(command_id: str, status: str, current_user: UserDB = Depends(
     db.refresh(db_cmd)
     return db_cmd
 
-@app.delete("/commands/{command_id}")
+@fastapi_app.delete("/commands/{command_id}")
 def delete_command(command_id: str, current_user: UserDB = Depends(get_current_user), db: Session = Depends(get_db)):
     db_cmd = db.query(CommandDB).filter(CommandDB.id == command_id, CommandDB.user_id == current_user.id).first()
     if not db_cmd:
@@ -413,10 +421,10 @@ def delete_command(command_id: str, current_user: UserDB = Depends(get_current_u
     return {"detail": "Command deleted"}
 
 # --- Allowlist endpoint ---
-@app.get("/allowlist", response_model=List[str])
+@fastapi_app.get("/allowlist", response_model=List[str])
 def get_allowlist(current_user: UserDB = Depends(get_current_user)):
     return ALLOWED_COMMANDS
 
 if __name__ == "__main__":
     import uvicorn
-    uvicorn.run("main:app", host="0.0.0.0", port=8013, reload=True)
+    uvicorn.run("main:fastapi_app", host="0.0.0.0", port=8013, reload=True)
