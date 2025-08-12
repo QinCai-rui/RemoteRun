@@ -1,4 +1,9 @@
-from celery_app import celery_app
+try:
+    # When imported as a module (for Celery)
+    from .celery_app import celery_app
+except ImportError:
+    # When run directly or as relative import
+    from celery_app import celery_app
 from datetime import datetime
 import sys
 import os
@@ -9,7 +14,10 @@ sys.path.insert(0, os.path.dirname(__file__))
 @celery_app.task
 def execute_and_store_ssh(command_id: str):
     # Import here to avoid circular imports
-    from main import SessionLocal, CommandDB, ServerDB, run_ssh_command
+    try:
+        from .main import SessionLocal, CommandDB, ServerDB, run_ssh_command
+    except ImportError:
+        from main import SessionLocal, CommandDB, ServerDB, run_ssh_command
     
     db = SessionLocal()
     try:

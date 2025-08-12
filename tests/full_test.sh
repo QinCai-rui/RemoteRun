@@ -10,8 +10,8 @@ echo "=== RemoteRun Full Test ==="
 # Configuration
 export USERNAME="testuser"
 export PASSWORD="testpass123"
-export SERVER_NAME="hackclub nest"
-export SERVER_HOST="hackclub.app"  
+export SERVER_NAME="fedora vm"
+export SERVER_HOST="100.64.0.101"  
 export SERVER_USER="qincai"
 
 ########################################
@@ -48,7 +48,7 @@ echo "Got token: ${TOKEN:0:20}..."
 
 echo "2. Loading SSH private key..."
 # Load and format SSH private key with proper JSON escaping (convert newlines to \n)
-export SERVER_PRIVKEY="$(cat /workspaces/RemoteRun/tests/test_ed25519 | sed ':a;N;$!ba;s/\n/\\n/g')"
+export SERVER_PRIVKEY="$(cat ~/RemoteRun/tests/test_ed25519 | sed ':a;N;$!ba;s/\n/\\n/g')"
 echo "Key loaded, length: ${#SERVER_PRIVKEY} characters"
 
 echo "3. Adding server with SSH key..."
