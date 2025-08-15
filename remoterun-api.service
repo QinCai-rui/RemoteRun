@@ -1,0 +1,22 @@
+[Unit]
+Description=RemoteRun API Server
+After=network.target remoterun-celery.service
+Wants=remoterun-celery.service
+Requires=remoterun-celery.service
+
+[Service]
+Type=simple
+User=qincai
+Group=qincai
+WorkingDirectory=/home/qincai/RemoteRun/src
+Environment=PATH=/home/qincai/RemoteRun/.venv/bin
+EnvironmentFile=/etc/remoterun.env
+ExecStart=/home/qincai/RemoteRun/.venv/bin/python main.py
+Restart=always
+RestartSec=10
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=remoterun-api
+
+[Install]
+WantedBy=multi-user.target

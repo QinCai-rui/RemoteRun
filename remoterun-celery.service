@@ -1,0 +1,22 @@
+[Unit]
+Description=RemoteRun Celery Worker
+After=network.target redis.service
+Wants=redis.service
+Requires=redis.service
+
+[Service]
+Type=simple
+User=qincai
+Group=qincai
+WorkingDirectory=/home/qincai/RemoteRun/src
+Environment=PATH=/home/qincai/RemoteRun/.venv/bin
+EnvironmentFile=/etc/remoterun.env
+ExecStart=/home/qincai/RemoteRun/.venv/bin/celery -A celery_app worker --loglevel=info
+Restart=always
+RestartSec=10
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=remoterun-celery
+
+[Install]
+WantedBy=multi-user.target
