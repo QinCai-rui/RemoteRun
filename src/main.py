@@ -426,5 +426,6 @@ def get_allowlist(current_user: UserDB = Depends(get_current_user)):
     return ALLOWED_COMMANDS
 
 if __name__ == "__main__":
+    # If this is run in the CLI
     import uvicorn
     uvicorn.run("main:fastapi_app", host="0.0.0.0", port=8013, reload=True)
