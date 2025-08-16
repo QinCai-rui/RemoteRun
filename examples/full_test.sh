@@ -11,7 +11,7 @@ export PASSWORD="testpass123"
 export SERVER_NAME="test-server"
 export SERVER_HOST="hackclub.app"  
 export SERVER_USER="qincai"    
-export COMMAND="uptime"
+export COMMAND="ip a"
 
 # Set the Fernet key
 export CMD_EXEC_FERNET_KEY="IJdqfc8AfSVQzHk28Ntargel6IyUCS3uqtlZtQWmQjE="
