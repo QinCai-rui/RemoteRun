@@ -1,9 +1,10 @@
 '''Main module for RemoteRun API (using FastAPI and SQLAlchemy).'''
-# The SQL sections of this are created with help from GitHub Copilot
+# The SQL and SwaggerUI sections of this are created with help from GitHub Copilot
 # and are not directly copied from any source.
 
 from fastapi import FastAPI, HTTPException, Depends, status
 from fastapi import Request
+from fastapi.openapi.utils import get_openapi
 from dotenv import load_dotenv
 from slowapi import Limiter, _rate_limit_exceeded_handler
 from slowapi.util import get_remote_address
@@ -50,7 +51,11 @@ if not FERNET_KEY:
 fernet = Fernet(FERNET_KEY.encode())
 
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
-oauth2_scheme = OAuth2PasswordBearer(tokenUrl="auth/login")
+oauth2_scheme = OAuth2PasswordBearer(
+    tokenUrl="auth/login",
+    scheme_name="JWT",
+    description="JWT Bearer token authentication"
+)
 
 # Only these commands are allowed to run remotely (security reasons)
 ALLOWED_COMMANDS = [
@@ -271,7 +276,43 @@ def run_ssh_command(server: ServerDB, command: str) -> str:
         client.close()
 
 # --- FastAPI app ---
-fastapi_app = FastAPI(title="Remote Command Executor API (SSH)")
+fastapi_app = FastAPI(
+    title="Remote Command Executor API (SSH)",
+    description="A secure API for executing remote commands via SSH with JWT authentication",
+    version="1.0.0"
+)
+
+# Add security scheme for Swagger UI
+def custom_openapi():
+    if fastapi_app.openapi_schema:
+        return fastapi_app.openapi_schema
+    openapi_schema = get_openapi(
+        title=fastapi_app.title,
+        version=fastapi_app.version,
+        description=fastapi_app.description,
+        routes=fastapi_app.routes,
+    )
+    openapi_schema["components"]["securitySchemes"] = {
+        "bearerAuth": {
+            "type": "http",
+            "scheme": "bearer",
+            "bearerFormat": "JWT",
+            "description": "Enter JWT token obtained from /auth/login endpoint. Format: Bearer <token>"
+        }
+    }
+    
+    # Add global security requirement for all protected endpoints
+    for path_data in openapi_schema["paths"].values():
+        for operation in path_data.values():
+            if isinstance(operation, dict) and "summary" in operation:
+                # Skip auth endpoints
+                if operation.get("summary") not in ["Register a new user", "User login"]:
+                    operation["security"] = [{"bearerAuth": []}]
+    
+    fastapi_app.openapi_schema = openapi_schema
+    return fastapi_app.openapi_schema
+
+fastapi_app.openapi = custom_openapi
 
 # --- Rate Limiting ---
 limiter = Limiter(key_func=get_remote_address)
@@ -320,7 +361,8 @@ def login(request: Request, form: OAuth2PasswordRequestForm = Depends(), db: Ses
     response_model=Server,
     summary="Add a new server",
     description="Add a new SSH server to the authenticated user's account.",
-    response_description="The newly added server."
+    response_description="The newly added server.",
+    dependencies=[Depends(get_current_user)]
 )
 
 @limiter.limit("20/minute")  # 20 req per minute
@@ -347,7 +389,8 @@ def add_server(request: Request, server: ServerCreate, current_user: UserDB = De
     response_model=List[Server],
     summary="List servers",
     description="List all SSH servers owned by the authenticated user.",
-    response_description="List of servers."
+    response_description="List of servers.",
+    dependencies=[Depends(get_current_user)]
 )
 def list_servers(current_user: UserDB = Depends(get_current_user), db: Session = Depends(get_db)):
     servers = db.query(ServerDB).filter(ServerDB.owner_id == current_user.id).all()
@@ -358,7 +401,8 @@ def list_servers(current_user: UserDB = Depends(get_current_user), db: Session =
     response_model=Server,
     summary="Update a server",
     description="Update the details of an existing SSH server.",
-    response_description="The updated server."
+    response_description="The updated server.",
+    dependencies=[Depends(get_current_user)]
 )
 def update_server(server_id: str, server: ServerCreate, current_user: UserDB = Depends(get_current_user), db: Session = Depends(get_db)):
     db_server = db.query(ServerDB).filter(ServerDB.id == server_id, ServerDB.owner_id == current_user.id).first()
@@ -379,7 +423,8 @@ def update_server(server_id: str, server: ServerCreate, current_user: UserDB = D
     "/servers/{server_id}",
     summary="Delete a server",
     description="Delete an SSH server from the authenticated user's account.",
-    response_description="Confirmation of server deletion."
+    response_description="Confirmation of server deletion.",
+    dependencies=[Depends(get_current_user)]
 )
 def delete_server(server_id: str, current_user: UserDB = Depends(get_current_user), db: Session = Depends(get_db)):
     db_server = db.query(ServerDB).filter(ServerDB.id == server_id, ServerDB.owner_id == current_user.id).first()
@@ -395,7 +440,8 @@ def delete_server(server_id: str, current_user: UserDB = Depends(get_current_use
     response_model=Command,
     summary="Submit a command",
     description="Submit a command to be executed on a specified server.",
-    response_description="The submitted command record."
+    response_description="The submitted command record.",
+    dependencies=[Depends(get_current_user)]
 )
 @limiter.limit("30/minute")
 def submit_command(request: Request, cmd: CommandCreate, current_user: UserDB = Depends(get_current_user), db: Session = Depends(get_db)):
@@ -435,7 +481,8 @@ def submit_command(request: Request, cmd: CommandCreate, current_user: UserDB = 
     response_model=List[Command],
     summary="List commands",
     description="List all commands submitted by the authenticated user.",
-    response_description="List of command records."
+    response_description="List of command records.",
+    dependencies=[Depends(get_current_user)]
 )
 @limiter.limit("60/minute")
 def list_commands(request: Request, current_user: UserDB = Depends(get_current_user), db: Session = Depends(get_db)):
@@ -447,7 +494,8 @@ def list_commands(request: Request, current_user: UserDB = Depends(get_current_u
     response_model=Command,
     summary="Get command details",
     description="Get details of a specific command by its ID.",
-    response_description="The command record."
+    response_description="The command record.",
+    dependencies=[Depends(get_current_user)]
 )
 def get_command(command_id: str, current_user: UserDB = Depends(get_current_user), db: Session = Depends(get_db)):
     db_cmd = db.query(CommandDB).filter(CommandDB.id == command_id, CommandDB.user_id == current_user.id).first()
@@ -460,7 +508,8 @@ def get_command(command_id: str, current_user: UserDB = Depends(get_current_user
     response_model=Command,
     summary="Update command status",
     description="Update the status of a command.",
-    response_description="The updated command record."
+    response_description="The updated command record.",
+    dependencies=[Depends(get_current_user)]
 )
 def update_command(command_id: str, status: str, current_user: UserDB = Depends(get_current_user), db: Session = Depends(get_db)):
     db_cmd = db.query(CommandDB).filter(CommandDB.id == command_id, CommandDB.user_id == current_user.id).first()
@@ -475,7 +524,8 @@ def update_command(command_id: str, status: str, current_user: UserDB = Depends(
     "/commands/{command_id}",
     summary="Delete a command",
     description="Delete a command record.",
-    response_description="Confirmation of command deletion."
+    response_description="Confirmation of command deletion.",
+    dependencies=[Depends(get_current_user)]
 )
 def delete_command(command_id: str, current_user: UserDB = Depends(get_current_user), db: Session = Depends(get_db)):
     db_cmd = db.query(CommandDB).filter(CommandDB.id == command_id, CommandDB.user_id == current_user.id).first()
@@ -491,7 +541,8 @@ def delete_command(command_id: str, current_user: UserDB = Depends(get_current_u
     response_model=List[str],
     summary="Get allowed commands",
     description="Get the list of allowed commands that can be executed remotely.",
-    response_description="List of allowed commands."
+    response_description="List of allowed commands.",
+    dependencies=[Depends(get_current_user)]
 )
 def get_allowlist(current_user: UserDB = Depends(get_current_user)):
     return ALLOWED_COMMANDS
