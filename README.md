@@ -29,7 +29,7 @@ TODO
 
 3. **Access the API docs**: Open [http://localhost:8013/docs](http://localhost:8013/docs) in your browser.
 
-## API Overview
+## API Overview. See API docs for more.
 
 - `POST /auth/register` — Register a new user
 - `POST /auth/login` — Obtain a JWT token
