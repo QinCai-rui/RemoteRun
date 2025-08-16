@@ -10,7 +10,7 @@ from slowapi import Limiter, _rate_limit_exceeded_handler
 from slowapi.util import get_remote_address
 from fastapi.responses import JSONResponse
 from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from typing import List, Optional
 from passlib.context import CryptContext
 from jose import JWTError, jwt
@@ -123,7 +123,10 @@ class ServerCreate(BaseModel):
     name: str
     host: str
     ssh_username: str
-    ssh_password: Optional[str] = None
+    ssh_password: Optional[str] = Field(
+        None,
+        description="DEPRECATED/disabled: password authentication is not allowed. Provide `ssh_privkey` (private key PEM) instead."
+    )
     ssh_privkey: Optional[str] = None
 
 class Command(BaseModel):
@@ -209,6 +212,11 @@ def run_ssh_command(server: ServerDB, command: str) -> str:
     username = str(server.ssh_username)
     password = decode_secret(server.ssh_password_enc) if server.ssh_password_enc else None
     privkey = decode_secret(server.ssh_privkey_enc) if server.ssh_privkey_enc else None
+    
+    # Enforce password auth disabled at runtime
+    if password:
+        # Raise a clear error so user know password auth is not permitted
+        raise ValueError("SSH password authentication is disabled; use private key (ssh_privkey) instead.")
     
     # Debug: print the key format (this is very much needed in dev for me)
     if privkey:
@@ -360,13 +368,17 @@ def login(request: Request, form: OAuth2PasswordRequestForm = Depends(), db: Ses
     "/servers",
     response_model=Server,
     summary="Add a new server",
-    description="Add a new SSH server to the authenticated user's account.",
+    description="Add a new SSH server to the authenticated user's account. Note: SSH password authentication is disabled; provide `ssh_privkey` instead.",
     response_description="The newly added server.",
     dependencies=[Depends(get_current_user)]
 )
 
 @limiter.limit("20/minute")  # 20 req per minute
 def add_server(request: Request, server: ServerCreate, current_user: UserDB = Depends(get_current_user), db: Session = Depends(get_db)):
+    # Disallow password-based SSH authentication for security reasons
+    if server.ssh_password:
+        raise HTTPException(status_code=400, detail="SSH password authentication disabled; use private key (ssh_privkey) instead.")
+
     server_id = str(uuid.uuid4())
     ssh_password_enc = encode_secret(server.ssh_password) if server.ssh_password else ""
     ssh_privkey_enc = encode_secret(server.ssh_privkey) if server.ssh_privkey else ""
@@ -400,7 +412,7 @@ def list_servers(current_user: UserDB = Depends(get_current_user), db: Session =
     "/servers/{server_id}",
     response_model=Server,
     summary="Update a server",
-    description="Update the details of an existing SSH server.",
+    description="Update the details of an existing SSH server. Note: SSH password authentication is disabled; provide `ssh_privkey` instead.",
     response_description="The updated server.",
     dependencies=[Depends(get_current_user)]
 )
@@ -408,6 +420,10 @@ def update_server(server_id: str, server: ServerCreate, current_user: UserDB = D
     db_server = db.query(ServerDB).filter(ServerDB.id == server_id, ServerDB.owner_id == current_user.id).first()
     if not db_server:
         raise HTTPException(status_code=404, detail="Server not found or unauthorized")
+    # Disallow switching to password-based auth
+    if server.ssh_password:
+        raise HTTPException(status_code=400, detail="SSH password authentication disabled; use private key (ssh_privkey) instead.")
+
     db_server.name = server.name
     db_server.host = server.host
     db_server.ssh_username = server.ssh_username
