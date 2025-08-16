@@ -18,7 +18,7 @@ TODO
 
    ```bash
    cd src
-   uvicorn main:app --reload --host 0.0.0.0 --port 8012
+   uvicorn main:app --reload --host 0.0.0.0 --port 8013
    ```
 
    or
@@ -27,7 +27,7 @@ TODO
    python3 src/main.py
    ```
 
-3. **Access the API docs**: Open [http://localhost:8012/docs](http://localhost:8012/docs) in your browser.
+3. **Access the API docs**: Open [http://localhost:8013/docs](http://localhost:8013/docs) in your browser.
 
 ## API Overview
 
@@ -44,4 +44,4 @@ TODO
 
 ## License
 
-See LICENSE for details.
+See [LICENSE](LICENSE) for details.
