@@ -6,6 +6,10 @@ RemoteRun is a FastAPI-based web service that lets you securely manage remote se
 
 TODO
 
+## Demo
+
+[Video Demo](https://hc-cdn.hel1.your-objectstorage.com/s/v3/42faab92ea9a134393bb01237680e58e309b9a55_recording.mp4)
+
 ## Quick Start
 
 1. **Install dependencies**:
