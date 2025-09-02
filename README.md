@@ -8,7 +8,7 @@ TODO
 
 ## Demo
 
-[Video Demo](https://hc-cdn.hel1.your-objectstorage.com/s/v3/42faab92ea9a134393bb01237680e58e309b9a55_recording.mp4)
+[Video Demo](https://go.qincai.xyz/remoterun-demo-vid)
 
 ## Quick Start
 
